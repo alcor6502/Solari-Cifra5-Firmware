@@ -2,7 +2,6 @@
  2020 by Stefan Wagner
  Project Files (Github): https://github.com/wagiminator/ATtiny13-TinyOLEDdemo
  License: http://creativecommons.org/licenses/by-sa/3.0/
-
  Adapted for STM32 and implemented font magnification
  by Alfredo Cortellini May 2021
 **/
@@ -145,61 +144,40 @@ void ssd1306_ClearScreen(void) {
 
 // Print a character
 void ssd1306_WriteChar(char ch, uint8_t fsize) {
+	uint8_t sliceChar, shifter;
+	uint16_t offsetChar; // calculated position of character in font array
+	uint32_t temp;
+
 	fsize = (fsize & 0x03) + 1; // Prevent array overflow
 	if ((ch < 32) || (ch > 100)) {
 		ch = 32; 				// Prevent to search outside of chars array
 	}
-	uint8_t i, j, k, vSlice, shifter;
-	uint32_t temp;
-	uint16_t offset; // calculated position of character in font array
 
-	for (k = 0; k < fsize; k++) {
-		offset = (ch - 32) * 5;
-
-		for (i = 0; i < (5 * fsize); i += fsize) {
-			vSlice = font_5x8[offset]; // work on the first half of the vertical
+	for (uint8_t k = 0; k < fsize; k++) {
+		offsetChar = (ch - 32) * 5;
+		for (sliceChar = 0; sliceChar < (5 * fsize); sliceChar += fsize) {
 			temp = 0;
 
-			for (j = 0; j < 8; j++) { // This routine is designed to multiply the pixels in vertical based on size
+			for (uint8_t j = 0; j < 8; j++) { // This routine is designed to multiply the pixels in vertical based on size
 				shifter = j * (fsize - 1); // Set the shift amount to spread the pixels on multiple pages based on size
-				temp |= ((vSlice & (0x01 << j)) << shifter);
-				if (fsize >= 2) {
-					temp |= ((vSlice & (0x01 << j)) << (shifter + 1));
-				}
-				if (fsize >= 3) {
-					temp |= ((vSlice & (0x01 << j)) << (shifter + 2));
-				}
-				if (fsize >= 4) {
-					temp |= ((vSlice & (0x01 << j)) << (shifter + 3));
+				for (uint8_t m = 0; m < fsize; m++) {
+					temp |= ((font_5x8[offsetChar] & (0x01 << j)) << (shifter + m));
 				}
 			}
 			shifter = 8 * k; // Set the shifting amount to select the right portion of the char
-			i2cBuff[i] = (uint8_t) (temp >> (8 * k)); // Extend horizontally the character based on size
-			if (fsize >= 2) {
-				i2cBuff[i + 1] = (uint8_t) (temp >> shifter);
+			for (uint8_t m = 0; m < fsize; m++) {
+				i2cBuff[sliceChar + m] = (uint8_t) (temp >> shifter);
 			}
-			if (fsize >= 3) {
-				i2cBuff[i + 2] = (uint8_t) (temp >> shifter);
-			}
-			if (fsize >= 4) {
-				i2cBuff[i + 3] = (uint8_t) (temp >> shifter);
-			}
-			offset++;
+			offsetChar++;
 		}
-		i2cBuff[i] = 0x00;		// Add character spacing based on size
-		if (fsize >= 2) {
-			i2cBuff[++i] = 0x00;
+		for (uint8_t m = 0; m < fsize; m++) {
+			i2cBuff[sliceChar + m] = 0x00;
 		}
-		if (fsize >= 3) {
-			i2cBuff[++i] = 0x00;
-		}
-		if (fsize >= 4) {
-			i2cBuff[++i] = 0x00;
-		}
-		i2cWrite(SSD1306_I2C_DATA, i2cBuff, i + 1);
+		i2cWrite(SSD1306_I2C_DATA, i2cBuff, sliceChar + 1);
 		ssd1306_SetCursor(col, ++page);
 	}
 	ssd1306_SetCursor(col += (fsize * SSD1306_CHAR_WIDTH), page -= fsize);
+
 }
 
 // Print a string
