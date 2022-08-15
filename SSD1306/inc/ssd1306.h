@@ -23,7 +23,7 @@
 #define SSD1306_HEIGHT          64
 
 // Display flip Screen
-#define SSD1306_INIT_LEN		18 // 18: no screen flip, 20: screen flip
+#define SSD1306_INIT_LEN		20 // 18: no screen flip, 20: screen flip
 
 // Single character  width
 #define SSD1306_CHAR_WIDTH		6

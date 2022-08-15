@@ -101,7 +101,7 @@ int main(void)
 
   // Temporary set the calibration wait to have a full sub menu
   // for plus: 512 - calib pulses
-  HAL_RTCEx_SetSmoothCalib(&hrtc, RTC_SMOOTHCALIB_PERIOD_32SEC, RTC_SMOOTHCALIB_PLUSPULSES_SET, 475);
+  HAL_RTCEx_SetSmoothCalib(&hrtc, RTC_SMOOTHCALIB_PERIOD_32SEC, RTC_SMOOTHCALIB_PLUSPULSES_SET, 511);
 
   // Initialize peripherals handlers for the RTOS tasks
   initRTOS_Periferals(&htim1, &hrtc);

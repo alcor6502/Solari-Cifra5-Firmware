@@ -171,9 +171,9 @@ void ssd1306_WriteChar(char ch, uint8_t fsize) {
 			offsetChar++;
 		}
 		for (uint8_t m = 0; m < fsize; m++) {
-			i2cBuff[sliceChar + m] = 0x00;
+			i2cBuff[sliceChar++] = 0x00;
 		}
-		i2cWrite(SSD1306_I2C_DATA, i2cBuff, sliceChar + 1);
+		i2cWrite(SSD1306_I2C_DATA, i2cBuff, sliceChar);
 		ssd1306_SetCursor(col, ++page);
 	}
 	ssd1306_SetCursor(col += (fsize * SSD1306_CHAR_WIDTH), page -= fsize);
