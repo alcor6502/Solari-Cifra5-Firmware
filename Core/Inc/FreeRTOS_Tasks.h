@@ -156,8 +156,8 @@ enum btnFuncEnum{
 
 // Clock coil parameters
 #define COIL_REST_TIME			200
-#define COIL_EXCITE_TIME		250
-#define COIL_EXTRA_TIME			100
+#define COIL_EXCITE_TIME		200
+#define COIL_EXTRA_TIME			0
 
 
 /*  Clock Task Structure and definitions
