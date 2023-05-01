@@ -87,6 +87,7 @@ void Error_Handler(void);
 #define BTN_INC_GPIO_Port GPIOB
 #define BTN_SET_Pin GPIO_PIN_5
 #define BTN_SET_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 
 //#define CIFRA5_DEBUG
