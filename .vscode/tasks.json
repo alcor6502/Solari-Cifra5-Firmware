@@ -1,0 +1,31 @@
+{
+    "version":"2.0.0",
+    "tasks": [
+        {
+            "label": "Flash STM32",
+            "type": "shell",
+            "command": "/Applications/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI",
+            "args": [
+                "--connect",
+                "port=SWD",
+                "--erase",
+                "all",
+                "--download",
+                "${workspaceFolder}/build/Release/Solari-Cifra5-Firmware.elf",
+                "--verify",
+                "-rst"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

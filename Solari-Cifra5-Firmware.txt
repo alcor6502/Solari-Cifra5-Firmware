@@ -1,0 +1,104 @@
+Configuration	Solari-Cifra5-Firmware
+STM32CubeMX 	6.16.1
+Date	02/03/2026
+MCU	STM32G031K8Tx
+
+
+
+PERIPHERALS	MODES	FUNCTIONS	PINS
+I2C1	I2C	I2C1_SCL	PB8
+I2C1	I2C	I2C1_SDA	PB7
+RCC	Crystal/Ceramic Resonator	RCC_OSC32_IN	PC14-OSC32_IN (PC14)
+RCC	Crystal/Ceramic Resonator	RCC_OSC32_OUT	PC15-OSC32_OUT (PC15)
+RTC	Activate RTC Clock Source	RTC_VS_RTC_Activate	VP_RTC_VS_RTC_Activate
+RTC	Calibration 1Hz	RTC_OUT_CALIB	PA4
+SYS	Serial Wire	SYS_SWCLK	PA14-BOOT0
+SYS	Serial Wire	SYS_SWDIO	PA13
+SYS	SYS_WakeUp0	SYS_WKUP1	PA0
+SYS	TIM17	SYS_VS_tim17	VP_SYS_VS_tim17
+TIM1	Internal Clock	TIM1_VS_ClockSourceINT	VP_TIM1_VS_ClockSourceINT
+TIM1	PWM Generation CH4	TIM1_CH4	PA11 [PA9]
+
+
+
+Pin Nb	PINs	FUNCTIONs	LABELs
+2	PC14-OSC32_IN (PC14)	RCC_OSC32_IN	
+3	PC15-OSC32_OUT (PC15)	RCC_OSC32_OUT	
+7	PA0	SYS_WKUP1	
+8	PA1	GPIO_EXTI1	PW_MON
+11	PA4	RTC_OUT_CALIB	RTC_CAL
+13	PA6	GPIO_Output	CLK_TICK
+14	PA7	GPIO_Output	CLK_TOCK
+18	PA8	GPIO_Input	SNS_HOUR
+19	PA9	GPIO_Input	SNS_DAY
+20	PC6	GPIO_Output	LED_FAULT
+22	PA11 [PA9]	TIM1_CH4	SERVO_PWM
+24	PA13	SYS_SWDIO	SWDIO
+25	PA14-BOOT0	SYS_SWCLK	SWCLK
+27	PB3	GPIO_Input	BTN_DEC
+28	PB4	GPIO_Input	BTN_INC
+29	PB5	GPIO_Input	BTN_SET
+31	PB7	I2C1_SDA	
+32	PB8	I2C1_SCL	
+PERIPHERALS	MODES	FUNCTIONS	PINS
+I2C1	I2C	I2C1_SCL	PB8
+I2C1	I2C	I2C1_SDA	PB7
+RCC	Crystal/Ceramic Resonator	RCC_OSC32_IN	PC14-OSC32_IN (PC14)
+RCC	Crystal/Ceramic Resonator	RCC_OSC32_OUT	PC15-OSC32_OUT (PC15)
+RTC	Activate RTC Clock Source	RTC_VS_RTC_Activate	VP_RTC_VS_RTC_Activate
+RTC	Calibration 1Hz	RTC_OUT_CALIB	PA4
+SYS	Serial Wire	SYS_SWCLK	PA14-BOOT0
+SYS	Serial Wire	SYS_SWDIO	PA13
+SYS	SYS_WakeUp0	SYS_WKUP1	PA0
+SYS	TIM17	SYS_VS_tim17	VP_SYS_VS_tim17
+TIM1	Internal Clock	TIM1_VS_ClockSourceINT	VP_TIM1_VS_ClockSourceINT
+TIM1	PWM Generation CH4	TIM1_CH4	PA11 [PA9]
+
+
+
+Pin Nb	PINs	FUNCTIONs	LABELs
+2	PC14-OSC32_IN (PC14)	RCC_OSC32_IN	
+3	PC15-OSC32_OUT (PC15)	RCC_OSC32_OUT	
+7	PA0	SYS_WKUP1	
+8	PA1	GPIO_EXTI1	PW_MON
+11	PA4	RTC_OUT_CALIB	RTC_CAL
+13	PA6	GPIO_Output	CLK_TICK
+14	PA7	GPIO_Output	CLK_TOCK
+18	PA8	GPIO_Input	SNS_HOUR
+19	PA9	GPIO_Input	SNS_DAY
+20	PC6	GPIO_Output	LED_FAULT
+22	PA11 [PA9]	TIM1_CH4	SERVO_PWM
+24	PA13	SYS_SWDIO	SWDIO
+25	PA14-BOOT0	SYS_SWCLK	SWCLK
+27	PB3	GPIO_Input	BTN_DEC
+28	PB4	GPIO_Input	BTN_INC
+29	PB5	GPIO_Input	BTN_SET
+31	PB7	I2C1_SDA	
+32	PB8	I2C1_SCL	
+
+
+
+SOFTWARE PROJECT
+
+Project Settings : 
+Project Name : Solari-Cifra5-Firmware
+Project Folder : /Users/alfredo/SoftwareDev/STM32/Solari-Cifra5-Firmware
+Toolchain / IDE : CMake
+Firmware Package Name and Version : STM32Cube FW_G0 V1.6.2
+
+
+Code Generation Settings : 
+STM32Cube MCU packages and embedded software packs : Copy only the necessary library files
+Generate peripheral initialization as a pair of '.c/.h' files per peripheral : No
+Backup previously generated files when re-generating : No
+Delete previously generated files when not re-generated : Yes
+Set all free pins as analog (to optimize the power consumption) : No
+
+
+Toolchains Settings : 
+Compiler Optimizations : 
+
+
+
+
+
