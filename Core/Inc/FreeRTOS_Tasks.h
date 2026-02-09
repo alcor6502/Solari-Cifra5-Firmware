@@ -143,7 +143,7 @@ enum btnFuncEnum{
 #endif
 
 
-/*  Sync Task Structure and definitions
+/*  Sync definitions
  *
  */
 
@@ -167,8 +167,19 @@ enum btnFuncEnum{
 // Timeouts and delays
 #define CLOCK_UPDATE_INTERVAL	100
 
-// Message notification to sync Task
-#define CLOCK_EV_RESYNC			10
-#define CLOCK_EV_NEW_TIME		20
+// Silent mode configuration
+#define SILENT_START_HOUR		22		// Hour when silent period starts (no mechanical movement)
+#define SILENT_END_HOUR			9		// Hour when silent period ends
+
+// RTC Backup Register allocation
+#define RTC_BKP_MECH_HOURS		RTC_BKP_DR0  // Mechanical clock hours (0-23)
+#define RTC_BKP_MECH_MINUTES	RTC_BKP_DR1  // Mechanical clock minutes (0-59)
+#define RTC_BKP_FLAGS			RTC_BKP_DR2  // Last tick state + other flags
+
+// Backup register flag bits
+#define RTC_BKP_FLAG_LAST_TICK	0x00000001  // Bit 0: last tick state (0=tick, 1=tock)
+
+// Message notification to clock Task
+#define CLOCK_EV_NEW_TIME		10
 
 #endif /* _TASK_HANDLERS_H_ */
