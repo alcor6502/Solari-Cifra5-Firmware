@@ -39,12 +39,14 @@ const char dispMsg[9][2][11] = {
 		{DISP_MSG09_ROW01, DISP_MSG09_ROW02},
 };
 
-// Titles array
-const char dispTitle[4][11] = {
+// Titles array (indexed by dispStateEnum)
+const char dispTitle[6][11] = {
 		{DISP_TITLE01},
 		{DISP_TITLE02},
 		{DISP_TITLE03},
 		{DISP_TITLE04},
+		{DISP_TITLE05},
+		{DISP_TITLE06},
 };
 
 const uint8_t setTimeDigitPos[4] = { // Array in which is stored the position of the digit same index
@@ -129,6 +131,115 @@ static void setLastTick(uint8_t tickState) {
 	HAL_RTCEx_BKUPWrite(hrtcHandle, RTC_BKP_FLAGS, flags);
 }
 
+// Get silent start hour from backup register (defaults to SILENT_DEFAULT_START)
+static uint8_t getSilentStartHour(void) {
+	uint32_t raw = HAL_RTCEx_BKUPRead(hrtcHandle, RTC_BKP_SILENT);
+	uint8_t hour = (uint8_t)(raw & 0xFF);
+	return (hour > 23) ? SILENT_DEFAULT_START : hour;
+}
+
+// Get silent end hour from backup register (defaults to SILENT_DEFAULT_END)
+static uint8_t getSilentEndHour(void) {
+	uint32_t raw = HAL_RTCEx_BKUPRead(hrtcHandle, RTC_BKP_SILENT);
+	uint8_t hour = (uint8_t)((raw >> 8) & 0xFF);
+	return (hour > 23) ? SILENT_DEFAULT_END : hour;
+}
+
+// Set silent period hours in backup register (start in bits 7:0, end in bits 15:8)
+static void setSilentHours(uint8_t startHour, uint8_t endHour) {
+	uint32_t raw = (uint32_t)startHour | ((uint32_t)endHour << 8);
+	HAL_RTCEx_BKUPWrite(hrtcHandle, RTC_BKP_SILENT, raw);
+}
+
+// Get calibration from backup register (bit 9=plus, bits 0-8=value)
+static void getCalibration(uint8_t *plusPulses, uint16_t *calibValue) {
+	uint32_t raw = HAL_RTCEx_BKUPRead(hrtcHandle, RTC_BKP_CALIB);
+	if (raw > 0x3FF) {
+		*plusPulses = 0;
+		*calibValue = 0;
+		return;
+	}
+	*plusPulses = (raw & 0x200) ? 1 : 0;
+	*calibValue = raw & 0x1FF;
+}
+
+// Set calibration in backup register
+static void setCalibration(uint8_t plusPulses, uint16_t calibValue) {
+	uint32_t raw = (calibValue & 0x1FF) | (plusPulses ? 0x200 : 0);
+	HAL_RTCEx_BKUPWrite(hrtcHandle, RTC_BKP_CALIB, raw);
+}
+
+// Apply calibration from backup register to RTC hardware
+static void applyCalibration(void) {
+	uint8_t plusPulses;
+	uint16_t calibValue;
+	getCalibration(&plusPulses, &calibValue);
+	HAL_RTCEx_SetSmoothCalib(hrtcHandle,
+		RTC_SMOOTHCALIB_PERIOD_32SEC,
+		plusPulses ? RTC_SMOOTHCALIB_PLUSPULSES_SET : RTC_SMOOTHCALIB_PLUSPULSES_RESET,
+		calibValue);
+}
+
+
+/*
+ * ################################
+ * #    FLASH SETTINGS STORAGE    #
+ * ################################
+ */
+
+// Write silent hours and calibration to Flash (last page)
+// Data packed into one 64-bit double-word:
+//   word0: silentStart[7:0] | silentEnd[15:8] | calibRaw[31:16]
+//   word1: magic number (0xC1F5A001)
+static void flashWriteSettings(void) {
+	uint8_t silentStart = getSilentStartHour();
+	uint8_t silentEnd = getSilentEndHour();
+	uint8_t calibPlus;
+	uint16_t calibValue;
+	getCalibration(&calibPlus, &calibValue);
+
+	uint32_t calibRaw = (calibValue & 0x1FF) | (calibPlus ? 0x200 : 0);
+	uint32_t word0 = (uint32_t)silentStart
+					| ((uint32_t)silentEnd << 8)
+					| (calibRaw << 16);
+	uint64_t data = (uint64_t)word0 | ((uint64_t)FLASH_SETTINGS_MAGIC << 32);
+
+	FLASH_EraseInitTypeDef eraseInit;
+	uint32_t pageError;
+
+	HAL_FLASH_Unlock();
+
+	eraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
+	eraseInit.Page = FLASH_SETTINGS_PAGE;
+	eraseInit.NbPages = 1;
+	HAL_FLASHEx_Erase(&eraseInit, &pageError);
+
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, FLASH_SETTINGS_ADDR, data);
+
+	HAL_FLASH_Lock();
+}
+
+// Restore settings from Flash to backup registers (called on battery-loss boot)
+static void flashRestoreSettings(void) {
+	uint32_t *addr = (uint32_t *)FLASH_SETTINGS_ADDR;
+	uint32_t word0 = addr[0];
+	uint32_t word1 = addr[1];
+
+	if (word1 != FLASH_SETTINGS_MAGIC) return;
+
+	uint8_t silentStart = (uint8_t)(word0 & 0xFF);
+	uint8_t silentEnd = (uint8_t)((word0 >> 8) & 0xFF);
+	uint16_t calibRaw = (uint16_t)((word0 >> 16) & 0x3FF);
+
+	if (silentStart <= 23 && silentEnd <= 23) {
+		setSilentHours(silentStart, silentEnd);
+	}
+
+	uint8_t calibPlus = (calibRaw & 0x200) ? 1 : 0;
+	uint16_t calibValue = calibRaw & 0x1FF;
+	setCalibration(calibPlus, calibValue);
+}
+
 
 /*
  * ################################
@@ -136,16 +247,20 @@ static void setLastTick(uint8_t tickState) {
  * ################################
  */
 
-// Check if current hour is within silent period
+// Check if current time is within silent period (starts at HH:01, not HH:00)
 static uint8_t isInSilentPeriod(void) {
     HAL_RTC_GetTime(hrtcHandle, &RTC_Time, RTC_FORMAT_BIN);
 	HAL_RTC_GetDate(hrtcHandle, &RTC_Date, RTC_FORMAT_BIN);
-	if (SILENT_START_HOUR > SILENT_END_HOUR) {
-		// Wraps around midnight (e.g., 22:00 to 09:00)
-		return (RTC_Time.Hours >= SILENT_START_HOUR || RTC_Time.Hours < SILENT_END_HOUR);
+	uint8_t start = getSilentStartHour();
+	uint8_t end = getSilentEndHour();
+	uint8_t pastStart = (RTC_Time.Hours > start)
+			|| (RTC_Time.Hours == start && RTC_Time.Minutes > 0);
+	if (start > end) {
+		// Wraps around midnight (e.g., 22:01 to 09:00)
+		return (pastStart || RTC_Time.Hours < end);
 	} else {
-		// Same day (e.g., 02:00 to 05:00)
-		return (RTC_Time.Hours >= SILENT_START_HOUR && RTC_Time.Hours < SILENT_END_HOUR);
+		// Same day (e.g., 02:01 to 05:00)
+		return (pastStart && RTC_Time.Hours < end);
 	}
 }
 
@@ -170,6 +285,41 @@ static void displayShowClock(uint8_t *time) {
 	ssd1306_WriteChar(time[TEEN_MINS] + 48, DISP_FONT_L);
 	ssd1306_SetCursor(DIGIT_UNIT_MINS_X, DIGIT_TIME_Y);
 	ssd1306_WriteChar(time[UNIT_MINS] + 48, DISP_FONT_L);
+}
+
+
+// Display silent hours with dash separator (HH-HH)
+static void displayShowSilentHours(uint8_t *time) {
+	ssd1306_SetCursor(DIGIT_TEEN_HRS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[0] + 48, DISP_FONT_L);
+	ssd1306_SetCursor(DIGIT_UNIT_HRS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[1] + 48, DISP_FONT_L);
+
+	ssd1306_SetCursor(DIGIT_COLON_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(45, DISP_FONT_L);  // '-' dash
+
+	ssd1306_SetCursor(DIGIT_TEEN_MINS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[2] + 48, DISP_FONT_L);
+	ssd1306_SetCursor(DIGIT_UNIT_MINS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[3] + 48, DISP_FONT_L);
+}
+
+
+// Display calibration value with sign (±NNN)
+static void displayShowCalibration(uint8_t *time) {
+	ssd1306_SetCursor(DIGIT_TEEN_HRS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[0] ? 43 : 45, DISP_FONT_L);  // '+' or '-'
+
+	ssd1306_SetCursor(DIGIT_UNIT_HRS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[1] + 48, DISP_FONT_L);
+
+	ssd1306_SetCursor(DIGIT_COLON_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(32, DISP_FONT_L);  // blank space
+
+	ssd1306_SetCursor(DIGIT_TEEN_MINS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[2] + 48, DISP_FONT_L);
+	ssd1306_SetCursor(DIGIT_UNIT_MINS_X, DIGIT_TIME_Y);
+	ssd1306_WriteChar(time[3] + 48, DISP_FONT_L);
 }
 
 
@@ -232,182 +382,366 @@ static void displayTitle(uint8_t msgId, char *buffer) {
 
 
 // Control display ON/OFF
-static void displayOnOff(uint8_t newState, TickType_t *onTime) {
-	static uint8_t oldState = OFF;
-	if (newState != oldState) {
-		ssd1306_SetDisplayOnOff(newState); // Toggle the display State
-		oldState = newState;
+static void displayOnOff(uint8_t newState, displayCtx_t *ctx) {
+	if (newState != ctx->isOn) {
+		ssd1306_SetDisplayOnOff(newState);
+		ctx->isOn = newState;
 	}
-	if (newState == ON){
-		*onTime = xTaskGetTickCount(); // Update display on time
+	if (newState == ON) {
+		ctx->lastOnTime = xTaskGetTickCount();
+	}
+}
+
+
+// Enter time setting mode
+static void enterSetRtc(displayCtx_t *ctx, char *buf) {
+	ctx->state = DISP_SET_RTC;
+	ctx->setupMode = 0;
+	ctx->digitCursor = 0;
+	ssd1306_ClearScreen();
+	displayUpdateTimeVar(ctx->showTime);
+	displayTitle(ctx->state, buf);
+	displayCursorSetTime(ctx->digitCursor, 96);
+	displayShowClock(ctx->showTime);
+}
+
+
+// Enter silent hours setting mode
+static void enterSetSilent(displayCtx_t *ctx, char *buf) {
+	ctx->state = DISP_SET_SILENT;
+	ctx->digitCursor = 0;
+	ctx->showTime[0] = getSilentStartHour() / 10;
+	ctx->showTime[1] = getSilentStartHour() % 10;
+	ctx->showTime[2] = getSilentEndHour() / 10;
+	ctx->showTime[3] = getSilentEndHour() % 10;
+	ssd1306_ClearScreen();
+	displayTitle(ctx->state, buf);
+	displayShowSilentHours(ctx->showTime);
+	displayCursorSetTime(ctx->digitCursor, 96);
+}
+
+
+// Enter calibration setting mode
+static void enterSetCorrection(displayCtx_t *ctx, char *buf) {
+	uint8_t plus;
+	uint16_t val;
+	getCalibration(&plus, &val);
+	ctx->state = DISP_SET_CORRECTION;
+	ctx->digitCursor = 0;
+	ctx->showTime[0] = plus;
+	ctx->showTime[1] = val / 100;
+	ctx->showTime[2] = (val / 10) % 10;
+	ctx->showTime[3] = val % 10;
+	ssd1306_ClearScreen();
+	displayTitle(ctx->state, buf);
+	displayShowCalibration(ctx->showTime);
+	displayCursorSetTime(ctx->digitCursor, 96);
+}
+
+
+// Handle button events in DISP_CLOCK state
+static void handleClockBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
+	switch (eventId) {
+	case DISP_EV_BTN_SET_LONG:
+		if (!isInSilentPeriod()) {
+			enterSetRtc(ctx, buf);
+		}
+		break;
+	case DISP_EV_BTN_INC_LONG:
+		enterSetSilent(ctx, buf);
+		break;
+	case DISP_EV_BTN_DEC_LONG:
+		enterSetCorrection(ctx, buf);
+		break;
+	default:
+		break;
+	}
+}
+
+
+// Handle button events in DISP_SET_RTC state (digit editing)
+static void handleSetRtcBtns(uint32_t eventId, displayCtx_t *ctx) {
+	switch (eventId) {
+	case DISP_EV_BTN_SET:
+		displayCursorSetTime(ctx->digitCursor, 32);
+		ctx->digitCursor++;
+		break;
+
+	case DISP_EV_BTN_INC:
+		if ((ctx->digitCursor == TEEN_HRS) && (ctx->showTime[ctx->digitCursor] < 2)) {
+			ctx->showTime[ctx->digitCursor]++;
+			if ((ctx->showTime[ctx->digitCursor] == 2) && (ctx->showTime[ctx->digitCursor + 1] > 3)) {
+				ctx->showTime[ctx->digitCursor + 1] = 3;
+			}
+		}
+		if (((ctx->digitCursor == UNIT_HRS) && (ctx->showTime[ctx->digitCursor] < 9) && (ctx->showTime[TEEN_HRS] < 2))
+				|| ((ctx->digitCursor == UNIT_HRS) && (ctx->showTime[ctx->digitCursor] < 3) && (ctx->showTime[TEEN_HRS] == 2))) {
+			ctx->showTime[ctx->digitCursor]++;
+		}
+		if ((ctx->digitCursor == TEEN_MINS) && (ctx->showTime[ctx->digitCursor] < 5)) {
+			ctx->showTime[ctx->digitCursor]++;
+		}
+		if ((ctx->digitCursor == UNIT_MINS) && (ctx->showTime[ctx->digitCursor] < 9)) {
+			ctx->showTime[ctx->digitCursor]++;
+		}
+		break;
+
+	case DISP_EV_BTN_DEC:
+		if (ctx->showTime[ctx->digitCursor] > 0) {
+			ctx->showTime[ctx->digitCursor]--;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	if (ctx->digitCursor == 4) {
+		// All digits set — update RTC and start sync
+		RTC_Time.Hours = (ctx->showTime[TEEN_HRS] * 10) + ctx->showTime[UNIT_HRS];
+		RTC_Time.Minutes = (ctx->showTime[TEEN_MINS] * 10) + ctx->showTime[UNIT_MINS];
+		RTC_Time.Seconds = 0;
+		RTC_Date.Date = 1;
+		RTC_Date.Month = RTC_MONTH_JANUARY;
+		RTC_Date.Year = 21;
+		RTC_Date.WeekDay = RTC_WEEKDAY_FRIDAY;
+
+		taskENTER_CRITICAL();
+		HAL_RTC_SetTime(hrtcHandle, &RTC_Time, RTC_FORMAT_BIN);
+		HAL_RTC_SetDate(hrtcHandle, &RTC_Date, RTC_FORMAT_BIN);
+		taskEXIT_CRITICAL();
+
+		ctx->state = DISP_SYNC;
+		xTaskNotify(clockTaskHandle, (uint32_t) CLOCK_EV_NEW_TIME, eSetValueWithOverwrite);
+	} else {
+		displayShowClock(ctx->showTime);
+		displayCursorSetTime(ctx->digitCursor, 96);
+	}
+}
+
+
+// Handle button events in DISP_SET_SILENT state (HH-HH editing)
+static void handleSetSilentBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
+	switch (eventId) {
+	case DISP_EV_BTN_SET:
+		displayCursorSetTime(ctx->digitCursor, 32);
+		ctx->digitCursor++;
+		break;
+
+	case DISP_EV_BTN_INC: {
+		uint8_t tensIdx = (ctx->digitCursor < 2) ? 0 : 2;
+		if (ctx->digitCursor == tensIdx) {
+			// Tens digit: 0-2
+			if (ctx->showTime[ctx->digitCursor] < 2) {
+				ctx->showTime[ctx->digitCursor]++;
+				if (ctx->showTime[ctx->digitCursor] == 2 && ctx->showTime[ctx->digitCursor + 1] > 3) {
+					ctx->showTime[ctx->digitCursor + 1] = 3;
+				}
+			}
+		} else {
+			// Units digit: 0-9 (tens<2) or 0-3 (tens==2)
+			uint8_t max = (ctx->showTime[tensIdx] == 2) ? 3 : 9;
+			if (ctx->showTime[ctx->digitCursor] < max) {
+				ctx->showTime[ctx->digitCursor]++;
+			}
+		}
+		break;
+	}
+
+	case DISP_EV_BTN_DEC:
+		if (ctx->showTime[ctx->digitCursor] > 0) {
+			ctx->showTime[ctx->digitCursor]--;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	if (ctx->digitCursor == 4) {
+		// Save to backup registers and persist to Flash
+		setSilentHours(ctx->showTime[0] * 10 + ctx->showTime[1],
+				ctx->showTime[2] * 10 + ctx->showTime[3]);
+		flashWriteSettings();
+		if (ctx->setupMode) {
+			enterSetCorrection(ctx, buf);
+		} else {
+			ssd1306_ClearScreen();
+			ctx->state = DISP_CLOCK;
+		}
+	} else {
+		displayShowSilentHours(ctx->showTime);
+		displayCursorSetTime(ctx->digitCursor, 96);
+	}
+}
+
+
+// Handle button events in DISP_SET_CORRECTION state (±NNN editing, 0-511)
+static void handleSetCorrBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
+	switch (eventId) {
+	case DISP_EV_BTN_SET:
+		displayCursorSetTime(ctx->digitCursor, 32);
+		ctx->digitCursor++;
+		break;
+
+	case DISP_EV_BTN_INC:
+		if (ctx->digitCursor == 0) {
+			ctx->showTime[0] = !ctx->showTime[0];
+		} else if (ctx->digitCursor == 1) {
+			// Hundreds: 0-5, clamp lower digits to keep <= 511
+			if (ctx->showTime[1] < 5) {
+				ctx->showTime[1]++;
+				if (ctx->showTime[1] == 5) {
+					if (ctx->showTime[2] > 1) ctx->showTime[2] = 1;
+					if (ctx->showTime[2] == 1 && ctx->showTime[3] > 1) ctx->showTime[3] = 1;
+				}
+			}
+		} else if (ctx->digitCursor == 2) {
+			uint8_t max = (ctx->showTime[1] == 5) ? 1 : 9;
+			if (ctx->showTime[2] < max) {
+				ctx->showTime[2]++;
+				if (ctx->showTime[1] == 5 && ctx->showTime[2] == 1 && ctx->showTime[3] > 1) {
+					ctx->showTime[3] = 1;
+				}
+			}
+		} else {
+			uint8_t max = (ctx->showTime[1] == 5 && ctx->showTime[2] == 1) ? 1 : 9;
+			if (ctx->showTime[3] < max) {
+				ctx->showTime[3]++;
+			}
+		}
+		break;
+
+	case DISP_EV_BTN_DEC:
+		if (ctx->digitCursor == 0) {
+			ctx->showTime[0] = !ctx->showTime[0];
+		} else {
+			if (ctx->showTime[ctx->digitCursor] > 0) {
+				ctx->showTime[ctx->digitCursor]--;
+			}
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	if (ctx->digitCursor == 4) {
+		// Save to backup register, persist to Flash, and apply immediately
+		uint16_t value = ctx->showTime[1] * 100 + ctx->showTime[2] * 10 + ctx->showTime[3];
+		setCalibration(ctx->showTime[0], value);
+		applyCalibration();
+		flashWriteSettings();
+		if (ctx->setupMode) {
+			enterSetRtc(ctx, buf);
+		} else {
+			ssd1306_ClearScreen();
+			ctx->state = DISP_CLOCK;
+		}
+	} else {
+		displayShowCalibration(ctx->showTime);
+		displayCursorSetTime(ctx->digitCursor, 96);
 	}
 }
 
 
 // #### Main Display Task ####
 static void displayTask(void *parameters) {
-	static char dispStringBuffer[11];  // buffer to hold the message
-	uint8_t showTime[4]; // Array in which is stored the new clock time. index: 0=hour teens, 1=hour units, 2=min teens, 3=min units
-	uint8_t dispState = DISP_SYNC;
+	char buf[11];
 	uint32_t eventId;
-	uint8_t i = 0;
-	TickType_t lastDisplayOnTime = xTaskGetTickCount();
-	TickType_t lastDisplayClock = xTaskGetTickCount();
-
+	displayCtx_t ctx = {
+		.state = DISP_SYNC,
+		.digitCursor = 0,
+		.isOn = OFF,
+		.lastOnTime = xTaskGetTickCount(),
+		.lastClockUpdate = xTaskGetTickCount(),
+	};
 
 	while (1) {
-		if (xTaskNotifyWait(0, 0xffffffff, &eventId, pdMS_TO_TICKS(DISPLAY_TASK_DELAY)) == pdTRUE) { // An event has been received
+		if (xTaskNotifyWait(0, 0xffffffff, &eventId, pdMS_TO_TICKS(DISPLAY_TASK_DELAY)) == pdTRUE) {
 
-			// *** Special case in which you need to go straight to set time ***
-			if (eventId == DISP_EV_FORCE_SET_TIME) {
-				dispState = DISP_WAIT_SET_RTC;
-				eventId = DISP_EV_BTN_SET;
-				ssd1306_ClearScreen();
+			// First boot → full setup: silent hours → calibration → time
+			if (eventId == DISP_EV_FORCE_SETUP) {
+				ctx.setupMode = 1;
+				enterSetSilent(&ctx, buf);
+				displayOnOff(ON, &ctx);
+				vTaskResume(buttonTaskHandle);
+				continue;
 			}
 
-			// *** BUTTONS EVENTS ***
-			if ((eventId > 0) && (eventId < 200)) {	// Handle BUTTONS messages
-				displayOnOff(ON, &lastDisplayOnTime);
-				if (dispState != DISP_ERROR) {  // Handle the special case DISP_ERROR
-					if ((dispState == DISP_CLOCK) && (eventId == DISP_EV_BTN_SET)) {
-						dispState = DISP_WAIT_SET_RTC;
+			// *** BUTTON EVENTS (101-106) ***
+			if ((eventId > 100) && (eventId < 200)) {
+				uint8_t wasOff = !ctx.isOn;
+				displayOnOff(ON, &ctx);
 
-					} else if ((dispState == DISP_WAIT_SET_RTC) && (eventId == DISP_EV_BTN_SET)) {
-						dispState = DISP_SET_RTC;
-						i = 0;  //reset the counter
-						displayUpdateTimeVar(showTime);
-
-						// Write the title
-						displayTitle(dispState, dispStringBuffer);
-
-						// Write the first marker and time
-						displayCursorSetTime(i, 96);
-						displayShowClock(showTime);
-
-					} else if (dispState == DISP_SET_RTC) {
-						switch (eventId) {
-						case DISP_EV_BTN_SET:
-							// Delete the previous marker
-							displayCursorSetTime(i, 32);
-							i++;
-							break;
-
-						case DISP_EV_BTN_INC:
-							if ((i == TEEN_HRS) && (showTime[i] < 2)) {
-								showTime[i]++;
-								if ((showTime[i] == 2) && (showTime[i + 1] > 3)) { // prevent to have numbers above 23
-									showTime[i + 1] = 3;
-								}
-							}
-							if (((i == UNIT_HRS) && (showTime[i] < 9) && (showTime[TEEN_HRS] < 2))
-									|| ((i == 1) && (showTime[i] < 3) && (showTime[TEEN_HRS] == 2))) {
-								showTime[i]++;
-							}
-							if ((i == TEEN_MINS) && (showTime[i] < 5)) {
-								showTime[i]++;
-							}
-							if ((i == UNIT_MINS) && (showTime[i] < 9)) {
-								showTime[i]++;
-							}
-							break;
-
-						case DISP_EV_BTN_DEC:
-							if (showTime[i] > 0) {
-								showTime[i]--;
-							}
-							break;
-
-						default:
-							break;
-						}
-						if (i == 4) {
-							// launch the Sync process
-							RTC_Time.Hours = (showTime[TEEN_HRS] * 10) + showTime[UNIT_HRS];
-							RTC_Time.Minutes = (showTime[TEEN_MINS] * 10) + showTime[UNIT_MINS];
-							RTC_Time.Seconds = 00;
-							RTC_Date.Date = 1;
-							RTC_Date.Month = RTC_MONTH_JANUARY;
-							RTC_Date.Year = 21;
-							RTC_Date.WeekDay = RTC_WEEKDAY_FRIDAY;
-
-							taskENTER_CRITICAL();
-							HAL_RTC_SetTime(hrtcHandle, &RTC_Time, RTC_FORMAT_BIN); // set the new time
-							HAL_RTC_SetDate(hrtcHandle, &RTC_Date, RTC_FORMAT_BIN);
-							taskEXIT_CRITICAL();
-							dispState = DISP_SYNC; // Prevent further actions
-							xTaskNotify(clockTaskHandle, (uint32_t) CLOCK_EV_NEW_TIME, eSetValueWithOverwrite); // unblock SYNC Task
-						} else {
-
-							displayShowClock(showTime);
-							displayCursorSetTime(i, 96);
-						}
-						// End of DISP_SET_RTC state
-					} else {
-						dispState = DISP_CLOCK;	// send the status to IDLE no further action
-					}
-
-				} // End of special case DISP_ERROR
-				if (dispState != DISP_SYNC) {  // Prevent to get additional buttons
-					vTaskResume(buttonTaskHandle); // Get another button event
+				if (wasOff) {
+					vTaskResume(buttonTaskHandle);
+					continue;  // Wake only, don't process
 				}
 
-			} // End BUTTONS events
+				switch (ctx.state) {
+				case DISP_CLOCK:          handleClockBtns(eventId, &ctx, buf);  break;
+				case DISP_SET_RTC:        handleSetRtcBtns(eventId, &ctx);      break;
+				case DISP_SET_SILENT:     handleSetSilentBtns(eventId, &ctx, buf);  break;
+				case DISP_SET_CORRECTION: handleSetCorrBtns(eventId, &ctx, buf);  break;
+				case DISP_ERROR:          break;
+				case DISP_SYNC:           break;
+				}
 
-			// *** SYNC EVENTS ***
+				if (ctx.state != DISP_SYNC) {
+					vTaskResume(buttonTaskHandle);
+				}
+			}
+
+			// *** SYNC EVENTS (201-206) ***
 			if ((eventId > 200) && (eventId < 300)) {
-				dispState = DISP_SYNC;
-
-				displayOnOff(ON, &lastDisplayOnTime);
-				lastDisplayOnTime = xTaskGetTickCount();  // Update display on time
+				ctx.state = DISP_SYNC;
+				displayOnOff(ON, &ctx);
 
 				if (eventId == DISP_EV_SYN_START) {
 					ssd1306_ClearScreen();
-					displayTitle(dispState, dispStringBuffer);
+					displayTitle(ctx.state, buf);
 				}
 
-				displayMessage(eventId - DISP_EV_SYN_START, dispStringBuffer);
+				displayMessage(eventId - DISP_EV_SYN_START, buf);
 
-				if (eventId == DISP_EV_SYN_END) {  // Sync complete switch the display in clock mode
-					dispState = DISP_CLOCK;  //Switch in Clock mode
-					vTaskDelay(pdMS_TO_TICKS(1000)); // allow to show the message for 1 second
+				if (eventId == DISP_EV_SYN_END) {
+					ctx.state = DISP_CLOCK;
+					vTaskDelay(pdMS_TO_TICKS(1000));
 					ssd1306_ClearScreen();
-					displayOnOff(ON, &lastDisplayOnTime);
-
-					lastDisplayOnTime = xTaskGetTickCount();  // Reset display on time
-					lastDisplayClock = xTaskGetTickCount() - pdMS_TO_TICKS(DISPLAY_CLOCK_INTERVAL) - 10; // Update display on time
-					vTaskResume(buttonTaskHandle);  // Allow to read buttons to switch on the display
+					displayOnOff(ON, &ctx);
+					ctx.lastClockUpdate = xTaskGetTickCount() - pdMS_TO_TICKS(DISPLAY_CLOCK_INTERVAL) - 10;
+					vTaskResume(buttonTaskHandle);
 				}
-			} // End SYNC events
+			}
 
-			// *** ERROR EVENTS ***
-			if ((eventId > 300) && (eventId < 400)) {  // Handle ERROR messages
-				dispState = DISP_ERROR;
-				displayTitle(dispState, dispStringBuffer);
-				displayMessage(eventId - DISP_EV_ERR_START, dispStringBuffer);
-
-				vTaskResume(buttonTaskHandle);  // Allow to read buttons to switch on the display
+			// *** ERROR EVENTS (301-309) ***
+			if ((eventId > 300) && (eventId < 400)) {
+				ctx.state = DISP_ERROR;
+				displayOnOff(ON, &ctx);
+				displayTitle(ctx.state, buf);
+				displayMessage(eventId - DISP_EV_ERR_START, buf);
+				vTaskResume(buttonTaskHandle);
 			}
 
 		} else {  // Event wait timed out
 
-			if ((dispState == DISP_CLOCK) || (dispState == DISP_WAIT_SET_RTC)) { // States in which you want to update the display clock
-				if (timeLapsed(xTaskGetTickCount(), lastDisplayClock) > pdMS_TO_TICKS(DISPLAY_CLOCK_INTERVAL)) {
-					displayTitle(DISP_CLOCK, dispStringBuffer);
-					displayUpdateTimeVar(showTime);
-					if (i < 4) { // check if the cursor has been drawn
-						displayCursorSetTime(i, 32);
-						i = 4;
-					}
-					displayShowClock(showTime);
-					lastDisplayClock = xTaskGetTickCount();
+			// Time clock display
+			if (ctx.state == DISP_CLOCK) {
+				if (timeLapsed(xTaskGetTickCount(), ctx.lastClockUpdate) > pdMS_TO_TICKS(DISPLAY_CLOCK_INTERVAL)) {
+					displayTitle(DISP_CLOCK, buf);
+					displayUpdateTimeVar(ctx.showTime);
+					displayShowClock(ctx.showTime);
+					ctx.lastClockUpdate = xTaskGetTickCount();
 				}
 			}
-			// Display auto shut off and IDLE state transition
-			if ((dispState != DISP_SYNC)) {  // States in which you DO NOT shut off the display
-				if (timeLapsed(xTaskGetTickCount(), lastDisplayOnTime) > pdMS_TO_TICKS(DISPLAY_OFF_TIMEOUT)) {
-					displayOnOff(OFF, &lastDisplayOnTime);
-					if (dispState != DISP_ERROR) {	// do not exit from ERR STATE
-						dispState = DISP_CLOCK;	// send the status to IDLE no further action
+
+			// Display auto shut off
+			if (ctx.state != DISP_SYNC) {
+				if (timeLapsed(xTaskGetTickCount(), ctx.lastOnTime) > pdMS_TO_TICKS(DISPLAY_OFF_TIMEOUT)) {
+					displayOnOff(OFF, &ctx);
+					if (ctx.state != DISP_ERROR) {
+						ctx.state = DISP_CLOCK;
 					}
 				}
 			}
@@ -429,8 +763,11 @@ static void buttonTask(void *parameters) {
 	tactButton_t tactButton[BTN_MAX];
 	int i, j, alloff;
 	TickType_t last_wakeup_time;
+	uint8_t heldButton = BTN_MAX;	// Which button is held (BTN_MAX = none)
+	TickType_t pressTime = 0;		// When the press started
+	uint8_t longPressSent = 0;		// Prevent double-send
 
-	//Variables initialization
+	// Variables initialization
 	last_wakeup_time = xTaskGetTickCount();
 
 	for (i = 0; i < BTN_MAX; i++) {
@@ -440,39 +777,55 @@ static void buttonTask(void *parameters) {
 	}
 
 	while (1) {
-		// scan if any button has been pressed
-		tactButton[BTN_SET].actual = HAL_GPIO_ReadPin(BTN_SET_GPIO_Port,
-		BTN_SET_Pin);
-		tactButton[BTN_INC].actual = HAL_GPIO_ReadPin(BTN_INC_GPIO_Port,
-		BTN_INC_Pin);
-		tactButton[BTN_DEC].actual = HAL_GPIO_ReadPin(BTN_DEC_GPIO_Port,
-		BTN_DEC_Pin);
+		// Scan if any button has been pressed
+		tactButton[BTN_SET].actual = HAL_GPIO_ReadPin(BTN_SET_GPIO_Port, BTN_SET_Pin);
+		tactButton[BTN_INC].actual = HAL_GPIO_ReadPin(BTN_INC_GPIO_Port, BTN_INC_Pin);
+		tactButton[BTN_DEC].actual = HAL_GPIO_ReadPin(BTN_DEC_GPIO_Port, BTN_DEC_Pin);
 
 		for (i = 0; i < BTN_MAX; i++) {
-			if ((tactButton[i].actual != tactButton[i].status) && (tactButton[i].inDbnc == 0)) { // There is a change of state in the button
+			if ((tactButton[i].actual != tactButton[i].status) && (tactButton[i].inDbnc == 0)) {
 				tactButton[i].tikCnt = xTaskGetTickCount();
 				tactButton[i].inDbnc = 1;
 			}
 
-			if (timeLapsed(xTaskGetTickCount(), tactButton[i].tikCnt) > pdMS_TO_TICKS(BTN_DEBOUNCE)) { // Check if the button still pressed
+			if (timeLapsed(xTaskGetTickCount(), tactButton[i].tikCnt) > pdMS_TO_TICKS(BTN_DEBOUNCE)) {
 				tactButton[i].inDbnc = 0;
-				if (tactButton[i].actual != tactButton[i].status) { // The button is really pressed
-					if (tactButton[i].actual == 0) { // check if the button is pressed (logic level 0)
+				if (tactButton[i].actual != tactButton[i].status) {
+					if (tactButton[i].actual == 0) {  // Button pressed (logic low)
 						alloff = 0;
-						for (j = 0; j < BTN_MAX; j++) { // Scan all buttons to verify if another button is already pressed
+						for (j = 0; j < BTN_MAX; j++) {
 							alloff += tactButton[j].status;
 						}
-						if (alloff == BTN_MAX) { // No other button pressed (all logical 1)
-							tactButton[i].status = tactButton[i].actual; // The state of the button has been validated and only one has been pressed
-							xTaskNotify(displayTaskHandle, (uint32_t ) 101 + i, eSetValueWithOverwrite); // Send the eventId 101 to 103
-							vTaskSuspend(NULL);  // Stop scanning buttons till they are processed
+						if (alloff == BTN_MAX) {  // No other button pressed
+							tactButton[i].status = tactButton[i].actual;
+							heldButton = i;
+							pressTime = xTaskGetTickCount();
+							longPressSent = 0;
 						}
-					} else {
-						tactButton[i].status = tactButton[i].actual; // The state of the button has been validated
+					} else {  // Button released (logic high)
+						tactButton[i].status = tactButton[i].actual;
+						if (i == heldButton) {
+							if (!longPressSent) {
+								heldButton = BTN_MAX;
+								xTaskNotify(displayTaskHandle, (uint32_t)(101 + i), eSetValueWithOverwrite);
+								vTaskSuspend(NULL);
+							} else {
+								heldButton = BTN_MAX;
+							}
+						}
 					}
 				}
 			}
 		}  // For loop end
+
+		// Long press detection (after scanning all buttons)
+		if (heldButton < BTN_MAX && !longPressSent
+				&& timeLapsed(xTaskGetTickCount(), pressTime) >= pdMS_TO_TICKS(BTN_LONG_PRESS_TIME)) {
+			longPressSent = 1;
+			xTaskNotify(displayTaskHandle, (uint32_t)(104 + heldButton), eSetValueWithOverwrite);
+			vTaskSuspend(NULL);
+		}
+
 		vTaskDelayUntil(&last_wakeup_time, pdMS_TO_TICKS(BTN_TASK_DELAY));
 
 	} // While loop end
@@ -642,7 +995,7 @@ static void clockTask(void *parameters) {
 		// First boot: RTC not initialized, let user set time first
 		if (!rtcInitOk) {
 			rtcInitOk = 1;
-			xTaskNotify(displayTaskHandle, (uint32_t) DISP_EV_FORCE_SET_TIME, eSetValueWithOverwrite);
+			xTaskNotify(displayTaskHandle, (uint32_t) DISP_EV_FORCE_SETUP, eSetValueWithOverwrite);
 			xTaskNotifyWait(0xffffffff, 0xffffffff, &message, portMAX_DELAY);
 			// User finished setting time, proceed to sync
 		}
@@ -719,7 +1072,6 @@ static void clockTask(void *parameters) {
 					&& (HAL_GPIO_ReadPin(SNS_HOUR_GPIO_Port, SNS_HOUR_Pin) == 1)
 					&& (getMechMinutes() != 0)) {
 				resetMechPosition();
-				vTaskSuspend(buttonTaskHandle);
 				syncCount++;
 				break;
 			}
@@ -747,7 +1099,13 @@ void createRTOS_Tasks() {
 	// if 0 the clock has never been set up skip the initial sync
 	uint8_t clockTaskInitState = (uint8_t) (hrtcHandle->Instance->ICSR & RTC_ICSR_INITS);
 
+	// Battery was lost — restore silent hours and calibration from Flash
+	if (!clockTaskInitState) {
+		flashRestoreSettings();
+	}
+
     resetMechPosition();    // Force in startup to search for 0 in order to sincronize the Tick Tock
+	applyCalibration();		// Apply RTC smooth calibration from backup register
 
 	// FreeRTOS - Tasks Creation/
 	configASSERT(xTaskCreate(displayTask, "Display Task", 120, NULL, 2, &displayTaskHandle) == pdPASS);

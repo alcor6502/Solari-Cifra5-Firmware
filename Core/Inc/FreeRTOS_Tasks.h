@@ -60,11 +60,13 @@ void createRTOS_Tasks(void);
 #define DISP_MSG09_ROW01				" TOO MANY \0"
 #define DISP_MSG09_ROW02				" SYNCROS \0"
 
-// Clock Titles
+// Clock Titles (indexed by dispStateEnum)
 #define DISP_TITLE01					"CLOCK TIME\0"
 #define DISP_TITLE02					" SET TIME \0"
-#define DISP_TITLE03					"SYNC CLOCK\0"
-#define DISP_TITLE04					"SYNC ERROR\0"
+#define DISP_TITLE03					"SILENT SET\0"
+#define DISP_TITLE04					"RTC ADJUST\0"
+#define DISP_TITLE05					"SYNC CLOCK\0"
+#define DISP_TITLE06					"SYNC ERROR\0"
 
 
 // Events enumerator
@@ -72,6 +74,9 @@ enum dispEventIdEnum{
 	DISP_EV_BTN_SET = 101,
 	DISP_EV_BTN_INC = 102,
 	DISP_EV_BTN_DEC = 103,
+	DISP_EV_BTN_SET_LONG = 104,
+	DISP_EV_BTN_INC_LONG = 105,
+	DISP_EV_BTN_DEC_LONG = 106,
 	DISP_EV_SYN_START = 201,
 	DISP_EV_SYN_SRC_HOUR = 202,
 	DISP_EV_SYN_SRC_DAY = 203,
@@ -82,16 +87,17 @@ enum dispEventIdEnum{
 	DISP_EV_ERR_SNS_HOUR = 307,
 	DISP_EV_ERR_SNS_DAY = 308,
 	DISP_EV_ERR_MANY_SYNC = 309,
-	DISP_EV_FORCE_SET_TIME = 999
+	DISP_EV_FORCE_SETUP = 999
 };
 
-// Display state enumerator
+// Display state enumerator (order matches title array)
 enum dispStateEnum{
 	DISP_CLOCK,
 	DISP_SET_RTC,
+	DISP_SET_SILENT,
+	DISP_SET_CORRECTION,
 	DISP_SYNC,
 	DISP_ERROR,
-	DISP_WAIT_SET_RTC,
 };
 
 // Digit selection enumerator
@@ -107,6 +113,17 @@ enum onOffEnum{
 	ON,
 };
 
+// Display task context (lives on displayTask stack)
+typedef struct {
+	uint8_t state;
+	uint8_t showTime[4];
+	uint8_t digitCursor;
+	uint8_t isOn;
+	uint8_t setupMode;
+	TickType_t lastOnTime;
+	TickType_t lastClockUpdate;
+} displayCtx_t;
+
 
 /*
  *   Button Task Structure and definitions
@@ -115,6 +132,7 @@ enum onOffEnum{
 // Timeouts and delays
 #define BTN_MAX				3 	// Remember to update this value with the actual number of Button installed on the board
 #define BTN_DEBOUNCE		20 	// De-bounce time in multiple of 5ms
+#define BTN_LONG_PRESS_TIME	1000	// Long press threshold in ms
 #define BTN_TASK_DELAY		5 	// Frequency button scan
 
 // Button data structure
@@ -167,9 +185,9 @@ enum btnFuncEnum{
 // Timeouts and delays
 #define CLOCK_UPDATE_INTERVAL	100
 
-// Silent mode configuration
-#define SILENT_START_HOUR		22		// Hour when silent period starts (no mechanical movement)
-#define SILENT_END_HOUR			9		// Hour when silent period ends
+// Silent mode configuration (defaults, actual values stored in backup registers)
+#define SILENT_DEFAULT_START	22		// Default hour when silent period starts
+#define SILENT_DEFAULT_END		9		// Default hour when silent period ends
 
 // RTC Backup Register allocation
 #define RTC_BKP_MECH_HOURS		RTC_BKP_DR0  // Mechanical clock hours (0-23)
@@ -178,6 +196,17 @@ enum btnFuncEnum{
 
 // Backup register flag bits
 #define RTC_BKP_FLAG_LAST_TICK	0x00000001  // Bit 0: last tick state (0=tick, 1=tock)
+
+// Silent hours backup register (start in bits 7:0, end in bits 15:8)
+#define RTC_BKP_SILENT			RTC_BKP_DR3
+
+// Calibration backup register (bit 9: plus flag, bits 0-8: value 0-511)
+#define RTC_BKP_CALIB			RTC_BKP_DR4
+
+// Flash settings storage (last page of 64K Flash)
+#define FLASH_SETTINGS_PAGE		31				// Last Flash page (page 31)
+#define FLASH_SETTINGS_ADDR		0x0800F800U		// Page 31 base address
+#define FLASH_SETTINGS_MAGIC	0xC1F5A001U		// Validation magic number
 
 // Message notification to clock Task
 #define CLOCK_EV_NEW_TIME		10
