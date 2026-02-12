@@ -45,7 +45,12 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/FreeRTOS_Tasks.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/rtos_init.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/rtc_helpers.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/display_task.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/button_task.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/clock_task.c
+
 )
 
 # Add include paths

@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "FreeRTOS_Tasks.h"
+#include "rtos_init.h"
 #include "ssd1306.h"
 /* USER CODE END Includes */
 

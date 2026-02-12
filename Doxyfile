@@ -1,0 +1,86 @@
+# Doxyfile — Solari Cifra 5 Firmware Documentation
+# Doxygen 1.16.1
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+PROJECT_NAME           = "Solari Cifra 5 Firmware"
+PROJECT_NUMBER         = "2.0"
+PROJECT_BRIEF          = "STM32G031K8 FreeRTOS firmware for Solari Cifra 5 mechanical flip clock"
+PROJECT_LOGO           =
+
+#---------------------------------------------------------------------------
+# Input
+#---------------------------------------------------------------------------
+INPUT                  = Core/Inc \
+                         Core/Src \
+                         SSD1306/Inc \
+                         SSD1306/Src \
+                         README.md
+FILE_PATTERNS          = *.c *.h *.md
+RECURSIVE              = NO
+USE_MDFILE_AS_MAINPAGE = README.md
+EXCLUDE                = Core/Src/main.c \
+                         Core/Src/stm32g0xx_hal_msp.c \
+                         Core/Src/stm32g0xx_hal_timebase_tim.c \
+                         Core/Src/stm32g0xx_it.c \
+                         Core/Src/syscalls.c \
+                         Core/Src/sysmem.c \
+                         Core/Src/system_stm32g0xx.c \
+                         Core/Inc/stm32g0xx_hal_conf.h \
+                         Core/Inc/stm32g0xx_it.h \
+                         Core/Inc/FreeRTOSConfig.h
+
+#---------------------------------------------------------------------------
+# Output
+#---------------------------------------------------------------------------
+OUTPUT_DIRECTORY       = docs
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = .
+
+#---------------------------------------------------------------------------
+# Source browsing
+#---------------------------------------------------------------------------
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+#---------------------------------------------------------------------------
+# Extraction
+#---------------------------------------------------------------------------
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = NO
+
+#---------------------------------------------------------------------------
+# Preprocessing (STM32 HAL defines)
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+PREDEFINED             =
+
+#---------------------------------------------------------------------------
+# Graphs and diagrams
+#---------------------------------------------------------------------------
+HAVE_DOT               = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+
+#---------------------------------------------------------------------------
+# Appearance
+#---------------------------------------------------------------------------
+OPTIMIZE_OUTPUT_FOR_C  = YES
+SORT_MEMBER_DOCS       = NO
+FULL_PATH_NAMES        = NO
+TAB_SIZE               = 4
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+TYPEDEF_HIDES_STRUCT   = YES
+
+#---------------------------------------------------------------------------
+# Warnings
+#---------------------------------------------------------------------------
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = NO

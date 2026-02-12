@@ -1,11 +1,22 @@
 /**
- 2020 by Stefan Wagner
- Project Files (Github): https://github.com/wagiminator/ATtiny13-TinyOLEDdemo
- License: http://creativecommons.org/licenses/by-sa/3.0/
-
- Adapted for STM32 and implemented font magnification
- by Alfredo Cortellini May 2021
-**/
+ * @file   ssd1306.h
+ * @brief  SSD1306 OLED display driver over I2C with scalable font rendering.
+ *
+ * @version 2.0
+ * @date    12/02/2026
+ *
+ * @author  Stefan Wagner (original, 2020)
+ * @author  Alfredo Cortellini (STM32 adaptation + font magnification, 2021)
+ *
+ * @copyright Original work Copyright (c) 2020 Stefan Wagner.
+ *            Licensed under CC BY-SA 3.0.
+ *            See https://creativecommons.org/licenses/by-sa/3.0/
+ *            Project: https://github.com/wagiminator/ATtiny13-TinyOLEDdemo
+ *
+ *            Modifications Copyright (c) 2026 Alfredo Cortellini.
+ *            Licensed under CC BY-NC-SA 4.0.
+ *            See https://creativecommons.org/licenses/by-nc-sa/4.0/
+ */
 
 #ifndef _SSD1306_H_
 #define _SSD1306_H_

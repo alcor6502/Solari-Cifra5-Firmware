@@ -1,4 +1,44 @@
 {
+    // Doxygen Documentation Generator settings
+    "doxdocgen.generic.briefTemplate": "@brief  {text}",
+    "doxdocgen.generic.paramTemplate": "@param  {param}  {text}",
+    "doxdocgen.generic.returnTemplate": "@return {text}",
+    "doxdocgen.generic.dateTemplate": "",
+    "doxdocgen.generic.authorTag": "",
+    "doxdocgen.generic.order": [
+        "brief",
+        "empty",
+        "param",
+        "return"
+    ],
+    "doxdocgen.c.triggerSequence": "/**",
+    "doxdocgen.c.firstLine": "/**",
+    "doxdocgen.c.commentPrefix": " * ",
+    "doxdocgen.c.lastLine": " */",
+    "doxdocgen.generic.splitCasingSmartText": false,
+    "doxdocgen.file.fileTemplate": "@file   {name}",
+    "doxdocgen.file.versionTag": "@version 2.0",
+    "doxdocgen.file.copyrightTag": [
+        "@copyright Copyright (c) {year} Alfredo Cortellini.",
+        "           Licensed under CC BY-NC-SA 4.0.",
+        "           See https://creativecommons.org/licenses/by-nc-sa/4.0/"
+    ],
+    "doxdocgen.generic.authorName": "Alfredo Cortellini",
+    "doxdocgen.generic.authorTag": "@author  {author}",
+    "doxdocgen.generic.dateFormat": "{0}/{1}/{2}",
+    "doxdocgen.generic.dateTemplate": "@date    {date}",
+    "doxdocgen.file.fileOrder": [
+        "file",
+        "brief",
+        "empty",
+        "version",
+        "date",
+        "author",
+        "empty",
+        "copyright"
+    ],
+
+    // CMake / STM32 settings
     "cmake.cmakePath": "cube-cmake",
     "cmake.configureArgs": [
         "-DCMAKE_COMMAND=cube-cmake"
