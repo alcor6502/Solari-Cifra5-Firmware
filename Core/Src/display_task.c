@@ -2,7 +2,7 @@
  * @file   display_task.c
  * @brief  OLED display controller and UI state machine task.
  *
- * @version 2.0
+ * @version 2.1
  * @date    12/02/2026
  * @author  Alfredo Cortellini
  *
@@ -102,8 +102,9 @@ static void displayShowSilentHours(uint8_t *time) {
  * @brief  Render calibration value on OLED: ±NNN (sign + 3 digits).
  *
  *         Position 0 shows '+' (ASCII 43) or '-' (ASCII 45) based on
- *         time[0] (1=plus, 0=minus). The colon position shows a blank
- *         space. Digits 1-3 show the numeric value (0-511).
+ *         time[0] (1=plus, 0=minus). Digits 1-3 show the numeric value
+ *         (0-511). The last two digits are shifted left by 32 pixels
+ *         to close the gap left by the absent colon separator.
  *
  * @param  time  Array [plusFlag, hundreds, tens, units]
  */
@@ -114,12 +115,9 @@ static void displayShowCalibration(uint8_t *time) {
 	ssd1306_SetCursor(DIGIT_UNIT_HRS_X, DIGIT_TIME_Y);
 	ssd1306_WriteChar(time[1] + 48, DISP_FONT_L);
 
-	ssd1306_SetCursor(DIGIT_COLON_X, DIGIT_TIME_Y);
-	ssd1306_WriteChar(32, DISP_FONT_L);  // blank space
-
-	ssd1306_SetCursor(DIGIT_TEEN_MINS_X, DIGIT_TIME_Y);
+	ssd1306_SetCursor(DIGIT_TEEN_MINS_X - 32, DIGIT_TIME_Y);
 	ssd1306_WriteChar(time[2] + 48, DISP_FONT_L);
-	ssd1306_SetCursor(DIGIT_UNIT_MINS_X, DIGIT_TIME_Y);
+	ssd1306_SetCursor(DIGIT_UNIT_MINS_X - 32, DIGIT_TIME_Y);
 	ssd1306_WriteChar(time[3] + 48, DISP_FONT_L);
 }
 
@@ -148,16 +146,24 @@ static void displayUpdateTimeVar(uint8_t *time) {
  *         a visual cursor. Use ASCII 96 (grave accent) to show the cursor, or
  *         ASCII 32 (' ') to erase it when moving to the next digit.
  *
- * @param  digit   Digit index (0-3), maps to X position via setTimeDigitPos[]
- * @param  symbol  ASCII character to draw (96 = show cursor, 32 = clear)
+ *         In calibration mode, digits 2 and 3 are shifted left by 32 pixels
+ *         to match the compact ±NNN layout of displayShowCalibration().
+ *
+ * @param  digit      Digit index (0-3), maps to X position via setTimeDigitPos[]
+ * @param  symbol     ASCII character to draw (96 = show cursor, 32 = clear)
+ * @param  calibMode  1 = calibration layout (digits 2-3 shifted), 0 = normal
  */
-static void displayCursorSetTime(uint8_t digit, const uint8_t symbol) {
+static void displayCursorSetTime(uint8_t digit, const uint8_t symbol, uint8_t calibMode) {
+	uint8_t xpos = setTimeDigitPos[digit];
+	if (calibMode && digit >= 2) {
+		xpos -= 32;
+	}
 
-	ssd1306_SetCursor(setTimeDigitPos[digit], DIGIT_TIME_Y - 2);
+	ssd1306_SetCursor(xpos, DIGIT_TIME_Y - 2);
 	ssd1306_WriteChar(symbol, DISP_FONT_S);
-	ssd1306_SetCursor(setTimeDigitPos[digit] + 6, DIGIT_TIME_Y - 2);
+	ssd1306_SetCursor(xpos + 6, DIGIT_TIME_Y - 2);
 	ssd1306_WriteChar(symbol, DISP_FONT_S);
-	ssd1306_SetCursor(setTimeDigitPos[digit] + 10, DIGIT_TIME_Y - 2);
+	ssd1306_SetCursor(xpos + 10, DIGIT_TIME_Y - 2);
 	ssd1306_WriteChar(symbol, DISP_FONT_S);
 }
 
@@ -268,7 +274,7 @@ static void enterSetRtc(displayCtx_t *ctx, char *buf) {
 	ssd1306_ClearScreen();
 	displayUpdateTimeVar(ctx->showTime);
 	displayTitle(ctx->state, buf);
-	displayCursorSetTime(ctx->digitCursor, 96);
+	displayCursorSetTime(ctx->digitCursor, 96, 0);
 	displayShowClock(ctx->showTime);
 }
 
@@ -299,7 +305,7 @@ static void enterSetSilent(displayCtx_t *ctx, char *buf) {
 	ssd1306_ClearScreen();
 	displayTitle(ctx->state, buf);
 	displayShowSilentHours(ctx->showTime);
-	displayCursorSetTime(ctx->digitCursor, 96);
+	displayCursorSetTime(ctx->digitCursor, 96, 0);
 }
 
 
@@ -330,7 +336,7 @@ static void enterSetCorrection(displayCtx_t *ctx, char *buf) {
 	ssd1306_ClearScreen();
 	displayTitle(ctx->state, buf);
 	displayShowCalibration(ctx->showTime);
-	displayCursorSetTime(ctx->digitCursor, 96);
+	displayCursorSetTime(ctx->digitCursor, 96, 1);
 }
 
 
@@ -392,7 +398,7 @@ static void handleClockBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
 static void handleSetRtcBtns(uint32_t eventId, displayCtx_t *ctx) {
 	switch (eventId) {
 	case DISP_EV_BTN_SET:
-		displayCursorSetTime(ctx->digitCursor, 32);
+		displayCursorSetTime(ctx->digitCursor, 32, 0);
 		ctx->digitCursor++;
 		break;
 
@@ -444,7 +450,7 @@ static void handleSetRtcBtns(uint32_t eventId, displayCtx_t *ctx) {
 		xTaskNotify(clockTaskHandle, (uint32_t) CLOCK_EV_NEW_TIME, eSetValueWithOverwrite);
 	} else {
 		displayShowClock(ctx->showTime);
-		displayCursorSetTime(ctx->digitCursor, 96);
+		displayCursorSetTime(ctx->digitCursor, 96, 0);
 	}
 }
 
@@ -469,7 +475,7 @@ static void handleSetRtcBtns(uint32_t eventId, displayCtx_t *ctx) {
 static void handleSetSilentBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
 	switch (eventId) {
 	case DISP_EV_BTN_SET:
-		displayCursorSetTime(ctx->digitCursor, 32);
+		displayCursorSetTime(ctx->digitCursor, 32, 0);
 		ctx->digitCursor++;
 		break;
 
@@ -516,7 +522,7 @@ static void handleSetSilentBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) 
 		}
 	} else {
 		displayShowSilentHours(ctx->showTime);
-		displayCursorSetTime(ctx->digitCursor, 96);
+		displayCursorSetTime(ctx->digitCursor, 96, 0);
 	}
 }
 
@@ -542,7 +548,7 @@ static void handleSetSilentBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) 
 static void handleSetCorrBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
 	switch (eventId) {
 	case DISP_EV_BTN_SET:
-		displayCursorSetTime(ctx->digitCursor, 32);
+		displayCursorSetTime(ctx->digitCursor, 32, 1);
 		ctx->digitCursor++;
 		break;
 
@@ -602,7 +608,7 @@ static void handleSetCorrBtns(uint32_t eventId, displayCtx_t *ctx, char *buf) {
 		}
 	} else {
 		displayShowCalibration(ctx->showTime);
-		displayCursorSetTime(ctx->digitCursor, 96);
+		displayCursorSetTime(ctx->digitCursor, 96, 1);
 	}
 }
 
